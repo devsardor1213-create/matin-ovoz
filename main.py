@@ -15,7 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # Config
 # -------------------------
 TOKEN = "8321889290:AAETN88DoI2fG4qMQwS3dsH9EBL1aiiWU0I"
-CHANNEL_ID = "@dev_spacce"
+CHANNEL_ID = "@sardorixcoder"
 ADMIN_ID = 7752032178
 
 bot = Bot(token=TOKEN)
