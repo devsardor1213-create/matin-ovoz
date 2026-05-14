@@ -46,7 +46,7 @@ async def start_cmd(message: Message):
         kb.button(text="✅ Kanalga qo‘shilish", url=f"https://t.me/{CHANNEL_ID.replace('@','')}")
         kb.button(text="♻️ Tekshirish", callback_data="check_subs")
         await message.answer(
-            "❌ Botdan foydalanish uchun kanalga a’zo bo‘ling:\n👉 https://t.me/Tech_communityy",
+            "❌ Botdan foydalanish uchun kanalga a’zo bo‘ling:\n👉 https://t.me/sardorixcoder",
             reply_markup=kb.as_markup()
         )
         return
