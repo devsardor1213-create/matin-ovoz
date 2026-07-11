@@ -13,6 +13,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
+# Ovoz file_id larini vaqtincha saqlash (saqlash tugmasi uchun)
+voice_file_cache: dict = {}
+
 # -------------------------
 # Config
 # -------------------------
@@ -504,10 +507,17 @@ async def handle_text(message: Message):
         voice_file = ogg_filename if converted and os.path.exists(ogg_filename) else mp3_filename
 
         # 3. Foydalanuvchiga sendVoice orqali Telegram Voice Message yuboramiz
-        await message.answer_voice(
+        save_kb = InlineKeyboardBuilder()
+        save_kb.button(text="💾 Saqlash (yuklab olish)", callback_data=f"savevoice_{message.from_user.id}")
+
+        sent_voice = await message.answer_voice(
             voice=types.FSInputFile(voice_file),
-            caption="✅ Tayyor ovoz \n\n🤖 @matinovozchat_bot"
+            caption="✅ Tayyor ovoz \n\n🤖 @matinovozchat_bot",
+            reply_markup=save_kb.as_markup()
         )
+        # Saqlash tugmasi uchun file_id ni cache ga yozamiz
+        voice_file_cache[message.from_user.id] = sent_voice.voice.file_id
+
         # Update user conversions stats
         increment_conversion(message.from_user.id)
 
@@ -537,6 +547,22 @@ async def handle_text(message: Message):
             os.remove(mp3_filename)
         if os.path.exists(ogg_filename):
             os.remove(ogg_filename)
+
+# -------------------------
+# Save Voice Callback
+# -------------------------
+@dp.callback_query(F.data.startswith("savevoice_"))
+async def save_voice_callback(callback: CallbackQuery):
+    user_id = int(callback.data.split("_")[1])
+    file_id = voice_file_cache.get(user_id)
+    if not file_id:
+        await callback.answer("❌ Fayl topilmadi. Qaytadan matn yuboring.", show_alert=True)
+        return
+    await callback.message.answer_document(
+        document=file_id,
+        caption="🎵 Ovoz fayli — yuklab olish uchun"
+    )
+    await callback.answer("✅ Fayl yuborildi!")
 
 # -------------------------
 # Run
