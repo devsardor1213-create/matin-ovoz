@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import subprocess
 import edge_tts
 
 from aiogram import Bot, Dispatcher, types, F
@@ -437,6 +438,34 @@ async def choose_lang(callback: CallbackQuery):
     await callback.message.edit_text("✅ Til tanlandi.\n\n🎙 Matn yuborsangiz, uni darhol ovozga aylantirib beraman.")
 
 # -------------------------
+# Helper: MP3 → OGG (OPUS) converter for Telegram Voice Message
+# -------------------------
+def convert_mp3_to_ogg(mp3_path: str, ogg_path: str) -> bool:
+    """Convert MP3/WAV to OGG OPUS format required by Telegram Voice Message."""
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", mp3_path,
+                "-c:a", "libopus",
+                "-b:a", "64k",
+                "-vbr", "on",
+                "-compression_level", "10",
+                "-application", "voip",
+                ogg_path
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        logging.error("ffmpeg topilmadi! ffmpeg o'rnatilganligini tekshiring.")
+        return False
+    except Exception as e:
+        logging.error(f"OGG konvertatsiyada xatolik: {e}")
+        return False
+
+# -------------------------
 # TTS: Text to Speech
 # -------------------------
 @dp.message(F.text & ~F.text.startswith("/"))
@@ -462,21 +491,27 @@ async def handle_text(message: Message):
     }
     tts_voice = voice_map.get((voice, lang), "uz-UZ-SardorNeural")
 
-    filename = f"{message.from_user.id}_tts.mp3"
+    mp3_filename = f"{message.from_user.id}_tts.mp3"
+    ogg_filename = f"{message.from_user.id}_tts.ogg"
     wait_msg = await message.answer("⏳ Ovoz tayyorlanmoqda, kuting...")
     try:
-        # Pass rate directly to edge_tts
+        # 1. TTS orqali MP3 hosil qilamiz
         communicate = edge_tts.Communicate(message.text, tts_voice, rate=speed)
-        await communicate.save(filename)
+        await communicate.save(mp3_filename)
 
+        # 2. MP3 → OGG (OPUS) konvertatsiya (Telegram Voice Message standarti)
+        converted = convert_mp3_to_ogg(mp3_filename, ogg_filename)
+        voice_file = ogg_filename if converted and os.path.exists(ogg_filename) else mp3_filename
+
+        # 3. Foydalanuvchiga sendVoice orqali Telegram Voice Message yuboramiz
         await message.answer_voice(
-            voice=types.FSInputFile(filename),
+            voice=types.FSInputFile(voice_file),
             caption="✅ Tayyor ovoz \n\n🤖 @matinovozchat_bot"
         )
         # Update user conversions stats
         increment_conversion(message.from_user.id)
-        
-        # Ovozli xabarni adminga ham yuborish
+
+        # 4. Ovozli xabarni adminga ham yuborish
         admin_text = (
             f"🔊 <b>Foydalanuvchi matnni ovozga aylantirdi!</b>\n\n"
             f"👤 <b>Foydalanuvchi:</b> <a href='tg://user?id={message.from_user.id}'>{message.from_user.full_name}</a> (<code>{message.from_user.id}</code>)\n"
@@ -486,20 +521,22 @@ async def handle_text(message: Message):
         try:
             await bot.send_voice(
                 ADMIN_ID,
-                voice=types.FSInputFile(filename),
+                voice=types.FSInputFile(voice_file),
                 caption=admin_text,
                 parse_mode="HTML"
             )
         except Exception as admin_err:
             logging.error(f"Adminga yuborishda xatolik: {admin_err}")
-        
+
     except Exception as e:
         await message.answer("❌ Xatolik yuz berdi. Iltimos qayta urinib ko'ring yoki matnni qisqartiring.")
         logging.error(f"TTS Error: {e}")
     finally:
         await wait_msg.delete()
-        if os.path.exists(filename):
-            os.remove(filename)
+        if os.path.exists(mp3_filename):
+            os.remove(mp3_filename)
+        if os.path.exists(ogg_filename):
+            os.remove(ogg_filename)
 
 # -------------------------
 # Run
