@@ -7,10 +7,10 @@ import edge_tts
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart, Command, StateFilter
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.state import StatesGroup, State, default_state
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Ovoz file_id larini vaqtincha saqlash (saqlash tugmasi uchun)
@@ -236,11 +236,9 @@ async def show_admin_panel(message: Message, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.button(text="📊 Foydalanuvchilar soni", callback_data="admin_stats")
     kb.button(text="📢 Reklama tarqatish", callback_data="admin_broadcast")
-    # Faqat asosiy admin kanal boshqara oladi
-    if message.from_user.id == ADMIN_ID:
-        kb.button(text="➕ Kanal qo'shish", callback_data="admin_add_channel")
-        kb.button(text="➖ Kanal o'chirish", callback_data="admin_del_channel")
-        kb.button(text="🗑 Barcha kanallarni tozalash", callback_data="admin_clear_channels")
+    kb.button(text="➕ Kanal qo'shish", callback_data="admin_add_channel")
+    kb.button(text="➖ Kanal o'chirish", callback_data="admin_del_channel")
+    kb.button(text="🗑 Barcha kanallarni tozalash", callback_data="admin_clear_channels")
     kb.adjust(1)
     await message.answer("🛠 <b>Admin panelga xush kelibsiz!</b>\nKerakli bo'limni tanlang:", parse_mode="HTML", reply_markup=kb.as_markup())
 
@@ -261,19 +259,11 @@ async def admin_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
     elif action == "add_channel":
-        # Faqat asosiy admin
-        if callback.from_user.id != ADMIN_ID:
-            await callback.answer("⛔ Faqat bosh admin kanal qo’sha oladi!", show_alert=True)
-            return
         await callback.message.answer("➕ Yangi kanal ID yoki Username yuboring (masalan: @kanal yoki -10012345678):")
         await state.set_state(AdminStates.waiting_for_channel_id)
         await callback.answer()
 
     elif action == "del_channel":
-        # Faqat asosiy admin
-        if callback.from_user.id != ADMIN_ID:
-            await callback.answer("⛔ Faqat bosh admin kanal o’chira oladi!", show_alert=True)
-            return
         channels = get_channels()
         if not channels:
             await callback.message.answer("🗑 Kanallar ro’yxati bo’sh.")
@@ -286,10 +276,6 @@ async def admin_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
     elif action == "clear_channels":
-        # Faqat asosiy admin
-        if callback.from_user.id != ADMIN_ID:
-            await callback.answer("⛔ Ruxsat yo’q!", show_alert=True)
-            return
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("DELETE FROM channels")
@@ -493,9 +479,9 @@ def convert_mp3_to_ogg(mp3_path: str, ogg_path: str) -> bool:
         return False
 
 # -------------------------
-# TTS: Text to Speech
+# TTS: Text to Speech (faqat state yo'q holatda ishlaydi)
 # -------------------------
-@dp.message(F.text & ~F.text.startswith("/"))
+@dp.message(F.text & ~F.text.startswith("/"), StateFilter(default_state))
 async def handle_text(message: Message):
     if not await check_all_subscriptions(message.from_user.id):
         markup = await get_subs_keyboard()
@@ -589,10 +575,36 @@ async def save_voice_callback(callback: CallbackQuery):
     await callback.answer("✅ Fayl yuborildi!")
 
 # -------------------------
+# Startup: Begona kanallarni tozalash va adminga xabar
+# -------------------------
+async def on_startup():
+    try:
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("SELECT channel_id FROM channels")
+        channels = c.fetchall()
+        if channels:
+            ch_list = "\n".join(f"  • {ch[0]}" for ch in channels)
+            kb = InlineKeyboardBuilder()
+            kb.button(text="🗑 Hoziroq barcha kanallarni tozala", callback_data="admin_clear_channels")
+            await bot.send_message(
+                ADMIN_ID,
+                f"⚠️ <b>Bot ishga tushdi!</b>\n\nMavjud kanallar ({len(channels)} ta):\n{ch_list}\n\nBegona kanal bo'lsa, pastdagi tugmani bosing:",
+                parse_mode="HTML",
+                reply_markup=kb.as_markup()
+            )
+        else:
+            await bot.send_message(ADMIN_ID, "✅ <b>Bot ishga tushdi!</b>\nKanallar bo'sh — hamma foydalanuvchi botdan foydalana oladi.", parse_mode="HTML")
+        conn.close()
+    except Exception as e:
+        logging.error(f"Startup xabari yuborishda xatolik: {e}")
+
+# -------------------------
 # Run
 # -------------------------
 async def main():
     logging.basicConfig(level=logging.INFO)
+    await on_startup()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
