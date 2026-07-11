@@ -236,44 +236,68 @@ async def show_admin_panel(message: Message, state: FSMContext):
     kb = InlineKeyboardBuilder()
     kb.button(text="📊 Foydalanuvchilar soni", callback_data="admin_stats")
     kb.button(text="📢 Reklama tarqatish", callback_data="admin_broadcast")
-    kb.button(text="➕ Kanal qo'shish", callback_data="admin_add_channel")
-    kb.button(text="➖ Kanal o'chirish", callback_data="admin_del_channel")
+    # Faqat asosiy admin kanal boshqara oladi
+    if message.from_user.id == ADMIN_ID:
+        kb.button(text="➕ Kanal qo'shish", callback_data="admin_add_channel")
+        kb.button(text="➖ Kanal o'chirish", callback_data="admin_del_channel")
+        kb.button(text="🗑 Barcha kanallarni tozalash", callback_data="admin_clear_channels")
     kb.adjust(1)
-    await message.answer("🛠 <b>Maxfiy Admin panelga xush kelibsiz!</b>\nO'zingizga kerakli bo'limni tanlang:", parse_mode="HTML", reply_markup=kb.as_markup())
+    await message.answer("🛠 <b>Admin panelga xush kelibsiz!</b>\nKerakli bo'limni tanlang:", parse_mode="HTML", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_callback(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return
     action = callback.data.split("_", 1)[1]
-    
+
     if action == "stats":
         users = get_all_users()
         await callback.message.answer(f"📊 Jami foydalanuvchilar: {len(users)} ta")
         await callback.answer()
-        
+
     elif action == "broadcast":
-        await callback.message.answer("📢 Yubormoqchi bo'lgan xabaringizni yuboring:")
+        await callback.message.answer("📢 Yubormoqchi bo’lgan xabaringizni yuboring:")
         await state.set_state(AdminStates.waiting_for_broadcast)
         await callback.answer()
-        
+
     elif action == "add_channel":
-        await callback.message.answer("➕ Yangi kanal ID sini yoki Username ini yuboring (masalan: @sardorixcoder yoki -10012345678):")
+        # Faqat asosiy admin
+        if callback.from_user.id != ADMIN_ID:
+            await callback.answer("⛔ Faqat bosh admin kanal qo’sha oladi!", show_alert=True)
+            return
+        await callback.message.answer("➕ Yangi kanal ID yoki Username yuboring (masalan: @kanal yoki -10012345678):")
         await state.set_state(AdminStates.waiting_for_channel_id)
         await callback.answer()
-        
+
     elif action == "del_channel":
+        # Faqat asosiy admin
+        if callback.from_user.id != ADMIN_ID:
+            await callback.answer("⛔ Faqat bosh admin kanal o’chira oladi!", show_alert=True)
+            return
         channels = get_channels()
         if not channels:
-            await callback.message.answer("🗑 Kanallar ro'yxati bo'sh.")
+            await callback.message.answer("🗑 Kanallar ro’yxati bo’sh.")
             return await callback.answer()
-        
         kb = InlineKeyboardBuilder()
         for ch_id, url in channels:
             kb.button(text=f"❌ {ch_id}", callback_data=f"delch_{ch_id}")
         kb.adjust(1)
-        await callback.message.answer("O'chirmoqchi bo'lgan kanalni tanlang:", reply_markup=kb.as_markup())
+        await callback.message.answer("O’chirmoqchi bo’lgan kanalni tanlang:", reply_markup=kb.as_markup())
         await callback.answer()
+
+    elif action == "clear_channels":
+        # Faqat asosiy admin
+        if callback.from_user.id != ADMIN_ID:
+            await callback.answer("⛔ Ruxsat yo’q!", show_alert=True)
+            return
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM channels")
+        conn.commit()
+        conn.close()
+        await callback.message.answer("✅ Barcha kanallar o’chirildi. Endi obuna talab qilinmaydi.")
+        await callback.answer()
+
 
 @dp.callback_query(F.data.startswith("delch_"))
 async def del_channel_callback(callback: CallbackQuery):
