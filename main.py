@@ -20,7 +20,7 @@ import uuid
 # -------------------------
 # Config
 # -------------------------
-TOKEN = "8125630472:AAFkpyrX76ysqGVsUzdNib30JOJPX__B7d4"
+TOKEN = "8321889290:AAETN88DoI2fG4qMQwS3dsH9EBL1aiiWU0I"
 ADMIN_ID = 7752032178 # Asosiy admin
 ADMIN_LOGIN = "ceo_admin"
 ADMIN_PASS = "MatinOvoz!2026"
