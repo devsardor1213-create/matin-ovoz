@@ -13,13 +13,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State, default_state
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# Ovoz file_id larini vaqtincha saqlash (saqlash tugmasi uchun)
+# Ovoz ma'lumotlarini vaqtincha saqlash (saqlash tugmasi uchun)
 voice_file_cache: dict = {}
+import uuid
 
 # -------------------------
 # Config
 # -------------------------
-TOKEN = "8321889290:AAETN88DoI2fG4qMQwS3dsH9EBL1aiiWU0I"
+TOKEN = "8125630472:AAFkpyrX76ysqGVsUzdNib30JOJPX__B7d4"
 ADMIN_ID = 7752032178 # Asosiy admin
 ADMIN_LOGIN = "ceo_admin"
 ADMIN_PASS = "MatinOvoz!2026"
@@ -516,17 +517,22 @@ async def handle_text(message: Message):
         converted = convert_mp3_to_ogg(mp3_filename, ogg_filename)
         voice_file = ogg_filename if converted and os.path.exists(ogg_filename) else mp3_filename
 
-        # 3. Foydalanuvchiga sendVoice orqali Telegram Voice Message yuboramiz
+        # Saqlash tugmasi uchun ma'lumotlarni cache ga yozamiz
+        cache_id = str(uuid.uuid4())[:8]
+        voice_file_cache[cache_id] = {
+            "text": message.text,
+            "voice": tts_voice,
+            "speed": speed
+        }
+
         save_kb = InlineKeyboardBuilder()
-        save_kb.button(text="💾 Saqlash (yuklab olish)", callback_data=f"savevoice_{message.from_user.id}")
+        save_kb.button(text="💾 Saqlash (yuklab olish)", callback_data=f"savevoice_{cache_id}")
 
         sent_voice = await message.answer_voice(
             voice=types.FSInputFile(voice_file),
             caption="✅ Tayyor ovoz \n\n🤖 @matinovozchat_bot",
             reply_markup=save_kb.as_markup()
         )
-        # Saqlash tugmasi uchun file_id ni cache ga yozamiz
-        voice_file_cache[message.from_user.id] = sent_voice.voice.file_id
 
         # Update user conversions stats
         increment_conversion(message.from_user.id)
@@ -563,16 +569,36 @@ async def handle_text(message: Message):
 # -------------------------
 @dp.callback_query(F.data.startswith("savevoice_"))
 async def save_voice_callback(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
-    file_id = voice_file_cache.get(user_id)
-    if not file_id:
-        await callback.answer("❌ Fayl topilmadi. Qaytadan matn yuboring.", show_alert=True)
+    cache_id = callback.data.split("_")[1]
+    data = voice_file_cache.get(cache_id)
+    
+    if not data:
+        await callback.answer("❌ Fayl muddati tugagan yoki topilmadi. Qaytadan matn yuboring.", show_alert=True)
         return
-    await callback.message.answer_document(
-        document=file_id,
-        caption="🎵 Ovoz fayli — yuklab olish uchun"
-    )
-    await callback.answer("✅ Fayl yuborildi!")
+        
+    await callback.answer("⏳ Fayl tayyorlanmoqda, kuting...")
+    
+    text = data["text"]
+    tts_voice = data["voice"]
+    speed = data["speed"]
+    
+    mp3_filename = f"{callback.from_user.id}_save.mp3"
+    try:
+        communicate = edge_tts.Communicate(text, tts_voice, rate=speed)
+        await communicate.save(mp3_filename)
+        
+        await callback.message.answer_audio(
+            audio=types.FSInputFile(mp3_filename),
+            caption="🎵 Ovoz fayli — yuklab olish uchun\n\n🤖 @matinovozchat_bot",
+            title="Ovoz fayli",
+            performer="@matinovozchat_bot"
+        )
+    except Exception as e:
+        await callback.message.answer("❌ Faylni saqlashda xatolik yuz berdi.")
+        logging.error(f"Save Voice Error: {e}")
+    finally:
+        if os.path.exists(mp3_filename):
+            os.remove(mp3_filename)
 
 # -------------------------
 # Startup: Begona kanallarni tozalash va adminga xabar
